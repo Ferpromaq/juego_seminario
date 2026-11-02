@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="es"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<title>Control · El Atalaya y el Pastor</title>
+<style>
+:root{--bg:#12122a;--card:#1f1f44;--gold:#ffd34d;--fg:#f4f0d8;box-sizing:border-box;padding:env(safe-area-inset-top,0) 0 env(safe-area-inset-bottom,0)}
+*{box-sizing:border-box}html,body{height:100%;margin:0}
+body{background:var(--bg);color:var(--fg);font:16px "Courier New",monospace;display:flex;flex-direction:column;touch-action:manipulation;-webkit-user-select:none;user-select:none}
+[hidden]{display:none!important}
+#top{padding:10px 14px;background:var(--card);border-bottom:3px solid var(--gold);font-weight:bold;display:flex;justify-content:space-between}
+#msg{padding:18px;text-align:center;line-height:1.4}
+main{flex:1;display:flex;flex-direction:column;justify-content:space-between;padding:12px}
+input,textarea{width:100%;padding:12px;font:inherit;border:3px solid var(--gold);background:#fff;color:#111;margin:6px 0}
+button{font:inherit;font-weight:bold;padding:14px;margin:5px 0;background:var(--gold);color:#222;border:3px solid #7a5a00;border-radius:10px;width:100%}
+button:active{transform:scale(.97)}
+#pad{display:flex;justify-content:space-between;align-items:flex-end;gap:12px}
+#joy{width:170px;height:170px;border-radius:50%;background:#ffffff18;border:3px solid #ffffff44;position:relative;touch-action:none}
+#knob{position:absolute;left:57px;top:57px;width:56px;height:56px;border-radius:50%;background:var(--gold)}
+#acts{flex:1;display:flex;flex-direction:column}
+#act{height:120px;font-size:22px;border-radius:60px}
+#fence{background:#c0794a;font-size:13px;padding:8px}
+#at,#dlg,#ask{background:var(--card);border:3px solid var(--gold);border-radius:10px;padding:12px;margin-bottom:8px}
+#map{width:100%;background:#2a6a38;border-radius:6px}
+.o{background:#9fd}
+</style></head><body>
+<div id="top"><span id="rl">Conectando…</span><span id="ps"></span></div>
+<div id="join" style="padding:16px">
+ <h2>El Atalaya y el Pastor</h2>
+ <label>Sala<input id="room" maxlength="4" autocapitalize="characters"></label>
+ <label>Tu nombre<input id="name" maxlength="10"></label>
+ <button id="go">Entrar</button>
+</div>
+<main id="game" hidden>
+ <div id="msg"></div>
+ <section id="at" hidden><div id="clue"></div><canvas id="map" width="240" height="130"></canvas><div id="ops"></div></section>
+ <section id="dlg" hidden></section>
+ <section id="ask" hidden><div id="aq"></div><textarea id="ai" rows="4" maxlength="200"></textarea><button id="as">Enviar (solo lo ves tú)</button></section>
+ <div id="pad" hidden><div id="joy"><div id="knob"></div></div><div id="acts"><button id="act">Acción</button><button id="fence" hidden>Construir cerco</button></div></div>
+</main>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+<script src="js/config.js"></script><script src="js/net.js"></script>
+<script>
+const $=i=>document.getElementById(i),q=new URLSearchParams(location.search);
+const id=localStorage.aid||(localStorage.aid=Math.random().toString(36).slice(2,10));
+let V=null,S={s:"title"},up=0,jx=0,jy=0,lx=0,ly=0,lastJoin=0,dsig="",asig="",asked="";
+$("room").value=(q.get("room")||"").toUpperCase();$("name").value=localStorage.an||"";
+const tap=()=>navigator.vibrate&&navigator.vibrate(15);
+const send=b=>{tap();Net.send("btn",{id,b})};
+function hello(){lastJoin=Date.now();Net.send("join",{id,name:localStorage.an})}
+$("go").onclick=()=>{const r=$("room").value.trim().toUpperCase(),n=$("name").value.trim();if(!r||!n)return;localStorage.an=n;
+ try{Net.join(r,(ev,m)=>{if(ev==="st")onSt(m)},()=>{$("join").hidden=true;$("game").hidden=false;$("msg").textContent="Conectado. Esperando al maestro…";hello()})}catch(e){alert("Falta configurar js/config.js")}};
+function onSt(m){S=m;V=m.pl[id];if(!V){if(Date.now()-lastJoin>1500)hello();return}render()}
+function render(){
+ $("rl").textContent=(V.rl||"Jugador")+" · "+localStorage.an;$("ps").textContent="Pasajes: "+S.pn;
+ const play=S.s==="ch1"||S.s==="ch2",d=V.d,asking=V.ask;
+ $("msg").hidden=play&&!d&&!asking;
+ $("msg").textContent=S.s==="title"?"Esperando que el maestro inicie…":S.s==="end1"||S.s==="intro2"?"¡Capítulo completado! Mira la pantalla del maestro.":S.s==="lose2"?"El cerco se cerró. Mira la pantalla.":S.s==="fin"?"¡Terminaron! Gracias por jugar.":S.s==="win"?"¡Las 100 ovejas te siguen!":"";
+ $("pad").hidden=!play||V.rl==="Atalaya"||!!d||!!asking;
+ $("fence").hidden=!V.f;
+ $("at").hidden=V.c===undefined||!!d||!!asking||S.s!=="ch1";
+ if(!$("at").hidden)atalaya();
+ if(d){const sig=JSON.stringify(d);if(sig!==dsig){dsig=sig;dialog(d)}$("dlg").hidden=false}else{$("dlg").hidden=true;dsig=""}
+ if(asking){$("ask").hidden=asked===asking;if(asig!==asking){asig=asking;$("aq").textContent=asking;$("ai").value=""}}else{$("ask").hidden=true;asig=""}}
+let built=0;
+function atalaya(){$("clue").textContent=V.c?"Ves un peligro: "+V.c+" Elige la advertencia:":"Sin peligro cerca de los Caminantes.";
+ if(!built){built=1;$("ops").innerHTML=V.op.map((o,i)=>`<button data-i="${i}">${o}</button>`).join("");$("ops").onclick=e=>{if(e.target.dataset.i)send("w"+e.target.dataset.i)}}
+ const c=$("map").getContext("2d");c.fillStyle="#2a6a38";c.fillRect(0,0,240,130);
+ V.m.h.forEach(h=>{c.fillStyle=h[2]?"#ffe066":"#f33";c.beginPath();c.arc(h[0]*240/256,h[1]*130/176,3,0,7);c.fill()});
+ V.m.w.forEach(w=>{c.fillStyle="#4f4";c.fillRect(w[0]*240/256-2,w[1]*130/176-2,5,5)})}
+function dialog(d){const el=$("dlg");
+ if(d.wait){el.innerHTML=`<b>${d.wait}</b> está hablando con otro jugador…`;return}
+ let h=`<b>${d.n}:</b><p>${d.t}</p>`;
+ if(d.s===0){h+=d.o.map((o,i)=>`<button data-b="${i+1}">${i+1}) ${o}</button>`).join("")+(d.w?"<p style='color:#f88'>Esa no es. Inténtalo de nuevo.</p>":"")}
+ else if(d.s===2)h+=`<p style="color:#ffd34d"><b>Pasaje: ${d.ref}</b></p><p>${d.x2}</p><button data-b="enter">Continuar</button>`;
+ else h+=`<button data-b="enter">Cerrar</button>`;
+ el.innerHTML=h;el.onclick=e=>{if(e.target.dataset.b)send(e.target.dataset.b)}}
+$("act").onclick=()=>send("act");$("fence").onclick=()=>{if(confirm("¿Construir el cerco?"))send("fence")};
+$("as").onclick=()=>{const v=$("ai").value.trim();if(!v)return;localStorage["r_"+$("aq").textContent]=v;asked=V.ask;Net.send("txt",{id});$("ask").hidden=true;tap()};
+const J=$("joy"),K=$("knob");let on=0;
+function mvTo(e){const r=J.getBoundingClientRect();let dx=(e.clientX-r.left-r.width/2)/(r.width/2),dy=(e.clientY-r.top-r.height/2)/(r.height/2);const m=Math.hypot(dx,dy);if(m>1){dx/=m;dy/=m}K.style.transform=`translate(${dx*50}px,${dy*50}px)`;jx=Math.abs(dx)<.15?0:dx;jy=Math.abs(dy)<.15?0:dy}
+J.onpointerdown=e=>{on=1;J.setPointerCapture(e.pointerId);mvTo(e)};J.onpointermove=e=>{if(on)mvTo(e)};J.onpointerup=J.onpointercancel=()=>{on=0;jx=jy=0;K.style.transform=""};
+setInterval(()=>{if(!Net.ch)return;const a=Math.round(jx*10)/10,b=Math.round(jy*10)/10;if(a!==lx||b!==ly){lx=a;ly=b;Net.send("mv",{id,x:a,y:b})}},120);
+</script></body></html>
